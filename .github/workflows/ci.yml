@@ -33,6 +33,8 @@ jobs:
           context: .
           load: true
           tags: rustsolverr:ci
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Smoke test with the real browser

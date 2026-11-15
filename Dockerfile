@@ -32,10 +32,13 @@ RUN apt-get update \
 USER solver
 # The packages go into a virtual environment that the user owns: `camoufox
 # fetch` writes its fingerprint model next to the installed package. The
-# browser itself goes into the user's cache directory.
-RUN python -m venv /home/solver/venv \
+# browser itself goes into the user's cache directory. An optional BuildKit
+# secret (`github_token`) avoids GitHub's anonymous API rate limit on CI.
+RUN --mount=type=secret,id=github_token,uid=1000 \
+    python -m venv /home/solver/venv \
     && /home/solver/venv/bin/pip install --no-cache-dir "camoufox==${CAMOUFOX_VERSION}" \
-    && /home/solver/venv/bin/python -m camoufox fetch
+    && GITHUB_TOKEN="$(cat /run/secrets/github_token 2>/dev/null || true)" \
+       /home/solver/venv/bin/python -m camoufox fetch
 
 COPY --from=build /rustsolverr /usr/local/bin/rustsolverr
 COPY scripts/smoke.py /usr/local/share/rustsolverr/smoke.py
