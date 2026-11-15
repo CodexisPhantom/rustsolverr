@@ -1,0 +1,20 @@
+[package]
+name = "rustsolverr-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustsolverr-common.workspace = true
+rustsolverr-solver.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rustsolverr-browser.workspace = true
+rustsolverr-cache.workspace = true
+rustsolverr-fetch.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+tower.workspace = true

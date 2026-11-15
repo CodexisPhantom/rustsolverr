@@ -1,0 +1,41 @@
+# Example: rustsolverr next to Prowlarr.
+# In Prowlarr: Settings > Indexers > Add proxy > FlareSolverr,
+# host http://rustsolverr:8191, then give the proxy and the indexer the same tag.
+services:
+  rustsolverr:
+    build: .
+    # image: ghcr.io/OWNER/rustsolverr:latest
+    container_name: rustsolverr
+    environment:
+      LOG_LEVEL: info
+      MAX_CONCURRENT_SOLVES: "2"
+      BROWSER_IDLE_TIMEOUT: "300"
+      COOKIE_CACHE_TTL: "86400"
+      # PROXY_URL: http://proxy:8888
+    volumes:
+      - rustsolverr-config:/config
+    ports:
+      - "8191:8191"
+    # Firefox needs more shared memory than Docker's 64 MB default.
+    shm_size: 1gb
+    # The image starts tini, so `init: true` is not needed.
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Etc/UTC
+    volumes:
+      - prowlarr-config:/config
+    ports:
+      - "9696:9696"
+    depends_on:
+      - rustsolverr
+    restart: unless-stopped
+
+volumes:
+  rustsolverr-config:
+  prowlarr-config:

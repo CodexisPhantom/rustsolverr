@@ -1,0 +1,8 @@
+[package]
+name = "rustsolverr-config"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustsolverr-common.workspace = true
+anyhow.workspace = true

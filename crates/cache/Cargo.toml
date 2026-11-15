@@ -1,0 +1,10 @@
+[package]
+name = "rustsolverr-cache"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustsolverr-common.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true

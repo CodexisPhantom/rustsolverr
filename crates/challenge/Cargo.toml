@@ -1,0 +1,7 @@
+[package]
+name = "rustsolverr-challenge"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustsolverr-common.workspace = true

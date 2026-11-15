@@ -1,0 +1,27 @@
+[package]
+name = "rustsolverr"
+version.workspace = true
+edition.workspace = true
+description = "FlareSolverr-compatible challenge-solving proxy"
+
+[features]
+default = ["chromium"]
+chromium = ["rustsolverr-browser/chromium"]
+
+[dependencies]
+rustsolverr-api.workspace = true
+rustsolverr-browser.workspace = true
+rustsolverr-cache.workspace = true
+rustsolverr-config.workspace = true
+rustsolverr-fetch = { workspace = true, features = ["wreq"] }
+rustsolverr-solver.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+rustsolverr-common.workspace = true
+async-trait.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "rustsolverr-solver"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustsolverr-common.workspace = true
+rustsolverr-challenge.workspace = true
+rustsolverr-cache.workspace = true
+rustsolverr-fetch.workspace = true
+rustsolverr-browser.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
