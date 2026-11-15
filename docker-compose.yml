@@ -4,7 +4,8 @@
 services:
   rustsolverr:
     build: .
-    # image: ghcr.io/OWNER/rustsolverr:latest
+    # image: ghcr.io/codexisphantom/rustsolverr:latest
+    # image: codexisphantom/rustsolverr:latest
     container_name: rustsolverr
     environment:
       LOG_LEVEL: info

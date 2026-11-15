@@ -23,7 +23,15 @@ docker compose up -d --build     # rustsolverr on :8191, next to Prowlarr
 curl http://localhost:8191/health
 ```
 
-`docker-compose.yml` is an example with Prowlarr. To run only rustsolverr:
+`docker-compose.yml` is an example with Prowlarr. To run only rustsolverr from GitHub Container Registry or Docker Hub:
+
+```sh
+docker run -d --name rustsolverr -p 8191:8191 --shm-size 1g -v rustsolverr-config:/config ghcr.io/codexisphantom/rustsolverr:latest
+# or from Docker Hub:
+docker run -d --name rustsolverr -p 8191:8191 --shm-size 1g -v rustsolverr-config:/config codexisphantom/rustsolverr:latest
+```
+
+Or build from source:
 
 ```sh
 docker build -t rustsolverr .

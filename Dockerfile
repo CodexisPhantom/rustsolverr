@@ -47,6 +47,8 @@ ENV PORT=8191 \
     PYTHON=/home/solver/venv/bin/python \
     HEADLESS=virtual \
     CACHE_FILE=/config/cookies.json
+LABEL org.opencontainers.image.source="https://github.com/CodexisPhantom/rustsolverr" \
+      org.opencontainers.image.description="FlareSolverr-compatible challenge-solving proxy in Rust"
 EXPOSE 8191
 VOLUME /config
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
