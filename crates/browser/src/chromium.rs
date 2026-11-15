@@ -18,7 +18,7 @@ use rustsolverr_common::{Cookie, Error, Method, Page, Request, Result};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use crate::{classifier_js, post_script, BrowserBackend};
+use crate::{bridge_proxy, classifier_js, post_script, BrowserBackend};
 
 const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -30,6 +30,12 @@ struct Running {
     browser: Browser,
     /// Drives the DevTools connection.
     handler: JoinHandle<()>,
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.handler.abort();
+    }
 }
 
 pub struct ChromiumBackend {
@@ -186,20 +192,29 @@ async fn solve_in(browser: &Browser, context: BrowserContextId, req: &Request) -
 #[async_trait]
 impl BrowserBackend for ChromiumBackend {
     async fn solve(&self, req: &Request) -> Result<Page> {
-        let mut guard = self.state.clone().write_owned().await;
-        if guard.as_ref().is_some_and(|r| r.handler.is_finished()) {
-            tracing::warn!("Chromium exited unexpectedly; restarting it");
-            *guard = None;
-        }
-        if guard.is_none() {
-            *guard = Some(self.launch().await?);
-        }
-        let guard = guard.downgrade();
-        let req = req.clone();
+        let guard = {
+            let read = self.state.clone().read_owned().await;
+            if read.as_ref().is_some_and(|r| !r.handler.is_finished()) {
+                read
+            } else {
+                drop(read);
+                let mut write = self.state.clone().write_owned().await;
+                if write.as_ref().is_some_and(|r| r.handler.is_finished()) {
+                    tracing::warn!("Chromium exited unexpectedly; restarting it");
+                    *write = None;
+                }
+                if write.is_none() {
+                    *write = Some(self.launch().await?);
+                }
+                write.downgrade()
+            }
+        };
+        let (req, _bridge) = bridge_proxy(req).await?;
+        let (_cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
 
         // The work runs in its own task: when the caller drops this future
-        // (request timeout), the task still reaches its own timeout and
-        // disposes the browser context.
+        // (request timeout), `_cancel_tx` drops, cancelling `solve_in`
+        // immediately and disposing the browser context.
         let task = tokio::spawn(async move {
             let browser = &guard.as_ref().expect("launched above").browser;
             let context = browser
@@ -209,12 +224,17 @@ impl BrowserBackend for ChromiumBackend {
                 })
                 .await
                 .map_err(fail)?;
-            let result =
-                tokio::time::timeout(req.timeout, solve_in(browser, context.clone(), &req)).await;
+            let result = tokio::select! {
+                biased;
+                _ = &mut cancel_rx => Err(Error::Timeout),
+                res = tokio::time::timeout(req.timeout, solve_in(browser, context.clone(), &req)) => {
+                    res.unwrap_or(Err(Error::Timeout))
+                }
+            };
             if let Err(e) = browser.dispose_browser_context(context).await {
                 tracing::warn!("cannot dispose browser context: {e}");
             }
-            result.unwrap_or(Err(Error::Timeout))
+            result
         });
         task.await.map_err(fail)?
     }

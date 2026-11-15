@@ -43,26 +43,64 @@ fn default_same_site() -> String {
     "None".into()
 }
 
+fn de_string<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?.unwrap_or_default())
+}
+
+fn de_path<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(default_path))
+}
+
+fn de_same_site<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(d)?
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(default_same_site))
+}
+
+fn de_bool<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<bool, D::Error> {
+    Ok(Option::<bool>::deserialize(d)?.unwrap_or(false))
+}
+
+fn de_expires<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<f64, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum NumOrStr {
+        Num(f64),
+        Str(String),
+    }
+    Ok(match Option::<NumOrStr>::deserialize(d)? {
+        Some(NumOrStr::Num(n)) => n,
+        Some(NumOrStr::Str(s)) => s.trim().parse().unwrap_or_else(|_| session_expiry()),
+        None => session_expiry(),
+    })
+}
+
 /// A browser cookie. Field names follow the FlareSolverr / Playwright JSON shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cookie {
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_string")]
     pub value: String,
     /// Empty when the caller gave only name and value.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_string")]
     pub domain: String,
-    #[serde(default = "default_path")]
+    #[serde(default = "default_path", deserialize_with = "de_path")]
     pub path: String,
     /// Unix seconds; `-1` for a session cookie. Selenium calls this `expiry`.
-    #[serde(default = "session_expiry", alias = "expiry")]
+    #[serde(
+        default = "session_expiry",
+        alias = "expiry",
+        deserialize_with = "de_expires"
+    )]
     pub expires: f64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_bool")]
     pub http_only: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_bool")]
     pub secure: bool,
-    #[serde(default = "default_same_site")]
+    #[serde(default = "default_same_site", deserialize_with = "de_same_site")]
     pub same_site: String,
 }
 
@@ -123,9 +161,36 @@ pub struct Proxy {
 }
 
 impl Proxy {
+    /// Extracts `user:pass@` embedded in `url` into `username` and `password`
+    /// and strips it from `url`.
+    pub fn normalized(mut self) -> Self {
+        if let Some((scheme, rest)) = self.url.split_once("://") {
+            let authority_len = rest.find('/').unwrap_or(rest.len());
+            let authority = &rest[..authority_len];
+            let path = &rest[authority_len..];
+            if let Some((userinfo, host_port)) = authority.rsplit_once('@') {
+                let (u, p) = match userinfo.split_once(':') {
+                    Some((u, p)) => (u, Some(p)),
+                    None => (userinfo, None),
+                };
+                if self.username.is_none() && !u.is_empty() {
+                    self.username = Some(u.to_string());
+                }
+                if self.password.is_none() {
+                    if let Some(p) = p.filter(|p| !p.is_empty()) {
+                        self.password = Some(p.to_string());
+                    }
+                }
+                self.url = format!("{scheme}://{host_port}{path}");
+            }
+        }
+        self
+    }
+
     /// Identifies the exit point for cache keys. Never contains the password.
     pub fn key(&self) -> String {
-        format!("{}@{}", self.username.as_deref().unwrap_or(""), self.url)
+        let clean = self.clone().normalized();
+        format!("{}@{}", clean.username.as_deref().unwrap_or(""), clean.url)
     }
 }
 
@@ -220,5 +285,29 @@ mod tests {
             &[Cookie::new("a", "3")],
         );
         assert_eq!(merged, vec![Cookie::new("b", "2"), Cookie::new("a", "3")]);
+    }
+
+    #[test]
+    fn cookie_accepts_null_fields() {
+        let c: Cookie = serde_json::from_str(
+            r#"{"name":"a","value":"b","domain":null,"path":null,"expires":null,"httpOnly":null,"secure":null,"sameSite":null}"#,
+        )
+        .unwrap();
+        assert_eq!(c, Cookie::new("a", "b"));
+    }
+
+    #[test]
+    fn proxy_normalizes_embedded_credentials_and_hides_password() {
+        let p = Proxy {
+            url: "socks5://alice:secret@10.0.0.1:1080".into(),
+            username: None,
+            password: None,
+        };
+        assert_eq!(p.key(), "alice@socks5://10.0.0.1:1080");
+        assert!(!p.key().contains("secret"));
+        let n = p.normalized();
+        assert_eq!(n.url, "socks5://10.0.0.1:1080");
+        assert_eq!(n.username.as_deref(), Some("alice"));
+        assert_eq!(n.password.as_deref(), Some("secret"));
     }
 }

@@ -14,7 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{classifier_js, post_script, BrowserBackend};
+use crate::{bridge_proxy, classifier_js, post_script, BrowserBackend};
 
 const SIDECAR: &str = include_str!("sidecar.py");
 /// Time for Python and the browser to start.
@@ -254,6 +254,7 @@ impl CamoufoxBackend {
 #[async_trait]
 impl BrowserBackend for CamoufoxBackend {
     async fn solve(&self, req: &Request) -> Result<Page> {
+        let (req, _bridge) = bridge_proxy(req).await?;
         let sidecar = self.ensure().await?;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();

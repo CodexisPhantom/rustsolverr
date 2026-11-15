@@ -191,7 +191,9 @@ Lifecycle rules, all enforced on the Rust side:
   browser and exits.
 - If the sidecar or the browser crashes, waiting solves fail with an error and
   the next solve starts a new one.
-- In the image, `tini` is PID 1 and reaps zombie processes.
+- In the image, `tini` is PID 1 and reaps zombie processes. Keep an init
+  process if you change the entrypoint (`docker run --init`, `init: true`):
+  without one, the helper processes of a stopped browser stay as zombies.
 
 ### The Chromium backend
 
@@ -253,6 +255,30 @@ Tests:
 - `scripts/smoke.py`: the same scenario against a running instance, for the
   Docker image: `docker exec rustsolverr python3 /usr/local/share/rustsolverr/smoke.py`.
 
+## Verification status
+
+Checked in the Docker image:
+
+- Live Cloudflare Turnstile challenge (`scrapingcourse.com/cloudflare-challenge`):
+  solved by Camoufox (`cf_clearance` returned), replayed from the cache on the
+  second request without starting a browser, and replayed from `/config/cookies.json`
+  after a container restart.
+- Both backends (`camoufox` and `chromium`): solve of a JavaScript challenge,
+  cached replay with the browser's user-agent, `request.post` through the
+  browser and through the replay, per-request HTTP proxy and authenticated
+  `socks5://user:pass@host:port` proxy used by both the browser and the replay.
+- Camoufox: timeout error, idle shutdown, restart after idle, clean exit on
+  `docker stop` with the browser running, cache file reuse after a restart.
+- Prowlarr (`lscr.io/linuxserver/prowlarr:latest`): the proxy "Test" action
+  and saving the proxy succeed.
+- GitHub Actions CI: `rust` (`fmt`, `clippy -D warnings`, `cargo test`) and
+  `image` (Docker build, `smoke.py` with real Camoufox, clean SIGTERM exit).
+
+Not checked:
+
+- Live DDoS-Guard protected sites in the wild.
+- A running Jackett container (wire format is covered by unit tests).
+
 ## Limitations
 
 - **Success against real protection depends on Camoufox**, on the exit IP and
@@ -269,8 +295,9 @@ Tests:
   captcha-service integration.
 - **Proxy.** Camoufox does not get a timezone or locale that matches the proxy
   exit (Camoufox's `geoip` option is not used). Proxy credentials are passed
-  to the browser context and to the HTTP client; SOCKS proxies with
-  credentials are untested.
+  to the browser context and to the HTTP client (for `socks5://` with
+  credentials, which neither browser supports natively, rustsolverr runs a
+  per-solve loopback SOCKS5 bridge that authenticates with the upstream proxy).
 - **Sessions** keep cookies only (see above).
 - **Fingerprint.** Camoufox generates one fingerprint per browser start. It
   changes when the browser restarts after an idle stop. Cached clearances keep

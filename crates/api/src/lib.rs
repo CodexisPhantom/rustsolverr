@@ -191,6 +191,12 @@ async fn request(
         format!("Error solving the challenge. {detail}")
     })?;
 
+    tracing::info!(
+        tier = ?solved.tier,
+        status = solved.page.status,
+        "{cmd} {}",
+        solved.page.url
+    );
     let mut res = ok(match solved.tier {
         Tier::Browser => "Challenge solved!",
         Tier::Cached | Tier::Plain => "Challenge not detected!",

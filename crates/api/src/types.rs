@@ -53,11 +53,14 @@ pub struct ProxyParam {
 impl ProxyParam {
     pub fn into_proxy(self) -> Option<Proxy> {
         let not_empty = |v: Option<String>| v.filter(|s| !s.trim().is_empty());
-        Some(Proxy {
-            url: not_empty(self.url)?,
-            username: not_empty(self.username),
-            password: not_empty(self.password),
-        })
+        Some(
+            Proxy {
+                url: not_empty(self.url)?,
+                username: not_empty(self.username),
+                password: not_empty(self.password),
+            }
+            .normalized(),
+        )
     }
 }
 

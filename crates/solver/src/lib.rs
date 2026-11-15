@@ -138,6 +138,7 @@ impl Solver {
     ) -> Result<Solved> {
         let host = url::Url::parse(&req.url)
             .ok()
+            .filter(|u| matches!(u.scheme(), "http" | "https"))
             .and_then(|u| u.host_str().map(str::to_string))
             .ok_or_else(|| Error::Invalid(format!("invalid url: {}", req.url)))?;
 
@@ -164,7 +165,8 @@ impl Solver {
             req.proxy.as_ref().map(Proxy::key).unwrap_or_default()
         );
 
-        let solved = self.tiers(&req, &key).await?;
+        let mut solved = self.tiers(&req, &key).await?;
+        solved.page.cookies = merge_cookies(&req.cookies, &solved.page.cookies);
         if solved.tier == Tier::Browser {
             *self.last_user_agent.lock().unwrap() = solved.page.user_agent.clone();
         }
@@ -177,7 +179,9 @@ impl Solver {
     }
 
     async fn fetch_bounded(&self, req: &Request) -> Result<Page> {
-        let limit = req.timeout.min(MAX_FETCH_TIMEOUT);
+        let limit = (req.timeout / 2)
+            .min(MAX_FETCH_TIMEOUT)
+            .max(Duration::from_millis(50));
         let mut bounded = req.clone();
         bounded.timeout = limit;
         tokio::time::timeout(limit, self.fetcher.fetch(&bounded))
@@ -236,9 +240,18 @@ impl Solver {
                 return Err(Error::Browser("the challenge was not solved".into()))
             }
         }
-        if !page.cookies.is_empty() {
-            self.cache
-                .put(key, page.cookies.clone(), page.user_agent.clone());
+        let site_cookies: Vec<Cookie> = page
+            .cookies
+            .iter()
+            .filter(|c| {
+                !req.cookies
+                    .iter()
+                    .any(|rc| rc.name == c.name && rc.value == c.value)
+            })
+            .cloned()
+            .collect();
+        if !site_cookies.is_empty() {
+            self.cache.put(key, site_cookies, page.user_agent.clone());
         }
         Ok(Solved {
             page,
@@ -505,10 +518,10 @@ mod tests {
                 std::future::pending().await
             }
         }
-        let browser = MockBrowser::new(None, Duration::from_secs(5));
+        let browser = MockBrowser::new(None, Duration::from_secs(2));
         let solver = solver(Arc::new(HangingFetcher), browser.clone());
         let mut req = get("http://cf.test/");
-        req.timeout = Duration::from_secs(60);
+        req.timeout = Duration::from_secs(10);
         let solved = solver.solve(req, None).await.unwrap();
         assert_eq!(solved.tier, Tier::Browser);
         assert_eq!(browser.solves(), 1);
@@ -616,6 +629,39 @@ mod tests {
         assert!(!solver.destroy_session("s1"));
     }
 
+    #[tokio::test]
+    async fn session_cookies_do_not_leak_into_shared_cache() {
+        struct ContextBrowser(Arc<ProtectedSite>);
+        #[async_trait]
+        impl BrowserBackend for ContextBrowser {
+            async fn solve(&self, req: &Request) -> Result<Page> {
+                let token = self.0.accepted.lock().unwrap().clone();
+                let mut page = content_page(BROWSER_UA);
+                page.cookies = merge_cookies(&req.cookies, &[Cookie::new("cf_clearance", token)]);
+                Ok(page)
+            }
+            async fn shutdown(&self) {}
+        }
+        let site = ProtectedSite::new();
+        let solver = Solver::new(
+            site.clone(),
+            Arc::new(ContextBrowser(site.clone())),
+            CookieCache::new(Duration::from_secs(3600), None),
+            None,
+        );
+
+        let mut req1 = get("http://cf.test/");
+        req1.cookies = vec![Cookie::new("auth", "alice")];
+        let first = solver.solve(req1, Some(("s1", None))).await.unwrap();
+        assert_eq!(first.tier, Tier::Browser);
+        assert!(first.page.cookies.iter().any(|c| c.name == "auth"));
+
+        let second = solver.solve(get("http://cf.test/"), None).await.unwrap();
+        assert_eq!(second.tier, Tier::Cached);
+        assert!(!second.page.cookies.iter().any(|c| c.name == "auth"));
+        assert!(second.page.cookies.iter().any(|c| c.name == "cf_clearance"));
+    }
+
     #[test]
     fn invalid_url_is_rejected() {
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -623,9 +669,9 @@ mod tests {
             .build()
             .unwrap();
         let solver = solver(Arc::new(OpenSite), MockBrowser::new(None, Duration::ZERO));
-        let err = rt
-            .block_on(solver.solve(get("not a url"), None))
-            .unwrap_err();
-        assert!(matches!(err, Error::Invalid(_)));
+        for bad in ["not a url", "file://localhost/etc/passwd", "ftp://x.test/"] {
+            let err = rt.block_on(solver.solve(get(bad), None)).unwrap_err();
+            assert!(matches!(err, Error::Invalid(_)), "{bad}: {err:?}");
+        }
     }
 }

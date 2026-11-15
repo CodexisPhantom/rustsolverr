@@ -84,10 +84,13 @@ impl Config {
             max_concurrent_solves,
             browser_idle_timeout: secs("BROWSER_IDLE_TIMEOUT", 300)?,
             cookie_cache_ttl: secs("COOKIE_CACHE_TTL", 86400)?,
-            proxy: get("PROXY_URL").map(|url| Proxy {
-                url,
-                username: get("PROXY_USERNAME"),
-                password: get("PROXY_PASSWORD"),
+            proxy: get("PROXY_URL").map(|url| {
+                Proxy {
+                    url,
+                    username: get("PROXY_USERNAME"),
+                    password: get("PROXY_PASSWORD"),
+                }
+                .normalized()
             }),
             backend,
             cache_file: get("CACHE_FILE").map(PathBuf::from),

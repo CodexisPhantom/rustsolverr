@@ -90,6 +90,7 @@ impl Fetcher for WreqFetcher {
         let fail = |e: wreq::Error| Error::Fetch(e.to_string());
         let host = url::Url::parse(&req.url)
             .ok()
+            .filter(|u| matches!(u.scheme(), "http" | "https"))
             .and_then(|u| u.host_str().map(str::to_string))
             .ok_or_else(|| Error::Invalid(format!("invalid url: {}", req.url)))?;
         let user_agent = req.user_agent.as_deref().unwrap_or(DEFAULT_USER_AGENT);
@@ -124,7 +125,7 @@ impl Fetcher for WreqFetcher {
             .emulation(emulation_for(user_agent))
             .headers(headers)
             .timeout(req.timeout);
-        if let Some(proxy) = &req.proxy {
+        if let Some(proxy) = req.proxy.clone().map(rustsolverr_common::Proxy::normalized) {
             let mut p = wreq::Proxy::all(proxy.url.as_str()).map_err(fail)?;
             if let Some(username) = &proxy.username {
                 p = p.basic_auth(username, proxy.password.as_deref().unwrap_or(""));
